@@ -22,7 +22,8 @@ def main(
         tokenizer_name_or_path=None,
         model_output_dir=None,
         result_output_dir=None,
-        tfidf=None
+        tfidf=None,
+        wordlist=None,
 ):
     def read_tsd(file_path):
         df = pd.read_csv(file_path)
@@ -101,15 +102,19 @@ def main(
     encodings.pop('offset_mapping')
     dataset = TSDDataset(encodings, labels)
 
+    corpus = [tokenizer.tokenize(' '.join(tokens)) for tokens in texts]
+
     if tfidf:
         def identity_tokenizer(text):
             return text
 
         vectorizer = TfidfVectorizer(lowercase=False, tokenizer=identity_tokenizer)
-        corpus = [tokenizer.tokenize(' '.join(tokens)) for tokens in texts]
-
         X = vectorizer.fit_transform(corpus)
         feature_names = vectorizer.get_feature_names()
+
+    if wordlist:
+        with open('data/wordlist.txt', 'r') as file:
+            toxic_words = [line.strip() for line in file.readlines()]
 
     class TSDModel(DistilBertPreTrainedModel):
         def __init__(self, config):
@@ -118,7 +123,7 @@ def main(
 
             self.distilbert = DistilBertModel(config)
             self.dropout = torch.nn.Dropout(config.dropout)
-            self.classifier = torch.nn.Linear(config.hidden_size + tfidf, config.num_labels)
+            self.classifier = torch.nn.Linear(config.hidden_size + tfidf + wordlist, config.num_labels)
 
             self.init_weights()
 
@@ -171,6 +176,27 @@ def main(
                             except IndexError:
                                 new_sequence_output[i][j] = torch.cat((token, torch.tensor([0])))
                                 break
+
+                sequence_output = new_sequence_output
+
+            if wordlist:
+                shape = list(sequence_output.shape)
+                shape[-1] += 1
+                new_sequence_output = torch.zeros(shape)
+
+                for i, doc in enumerate(sequence_output):
+                    for j, token in enumerate(doc):
+                        if j == 0:
+                            new_sequence_output[i][j] = torch.cat((token, torch.tensor([0])))
+                            continue
+
+                        try:
+                            if corpus[i][j - 1] in toxic_words:
+                                new_sequence_output[i][j] = torch.cat((token, torch.tensor([1])))
+                            else:
+                                new_sequence_output[i][j] = torch.cat((token, torch.tensor([0])))
+                        except IndexError:
+                            new_sequence_output[i][j] = torch.cat((token, torch.tensor([0])))
 
                 sequence_output = new_sequence_output
 
@@ -307,6 +333,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_output_dir')
     parser.add_argument('--result_output_dir')
     parser.add_argument('--tfidf', action='store_true', default=False)
+    parser.add_argument('--wordlist', action='store_true', default=False)
 
     args = parser.parse_args()
 
@@ -325,4 +352,5 @@ if __name__ == '__main__':
         model_output_dir=args.model_output_dir,
         result_output_dir=args.result_output_dir,
         tfidf=args.tfidf,
+        wordlist=args.wordlist,
     )
