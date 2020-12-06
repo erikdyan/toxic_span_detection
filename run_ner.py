@@ -36,12 +36,12 @@ def main(
             tokens = []
             tags = []
 
-            text = re.findall(r"\w+(?:'\w+)*|[^\w]", row['text'].encode('ascii', 'ignore').decode('ascii'))
+            text = re.findall(r"\w+(?:'\w+)*|[^\w]", row['text'])
             offset = 0
 
             for token in text:
                 length = len(token)
-                if token.isspace() or token == chr(127):
+                if token.isspace() or token > chr(126):
                     offset += length
                     continue
 
@@ -297,23 +297,20 @@ def main(
             writer = csv.writer(file)
             writer.writerow(['spans', 'text'])
 
-            for text in pd.read_csv(file_path)['text']:
-                original_tokens = re.findall(r"\w+(?:'\w+)*|[^\w]", text)
+            for i, text in enumerate(pd.read_csv(file_path)['text']):
                 spans = []
-
-                for tokens, preds in zip(texts, preds_list):
-                    if tokens == [token for token in original_tokens if not token.isspace()]:
-                        break
-
+                tokens = re.findall(r"\w+(?:'\w+)*|[^\w]", text)
                 char_offset = list_offset = 0
-                for i, original_token in enumerate(original_tokens):
-                    length = len(original_token)
-                    if original_token.isspace() or not original_token.encode('ascii', 'ignore').decode('ascii'):
+
+                for j, token in enumerate(tokens):
+                    length = len(token)
+                    if token.isspace() or token > chr(126):
                         char_offset += length
                         list_offset += 1
                         continue
 
-                    if preds[i - list_offset] == 'B-toxic' or preds[i - list_offset] == 'I-toxic':
+                    pred = preds_list[i][j - list_offset]
+                    if pred == 'B-toxic' or pred == 'I-toxic':
                         spans.extend(list(range(char_offset, char_offset + length)))
 
                     char_offset += length
