@@ -22,8 +22,8 @@ def main(
         tokenizer_name_or_path=None,
         model_output_dir=None,
         result_output_dir=None,
-        tfidf=None,
-        wordlist=None,
+        tfidf=False,
+        wordlist=False,
 ):
     def read_tsd(file_path):
         df = pd.read_csv(file_path)
