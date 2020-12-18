@@ -22,6 +22,7 @@ def main(
         tokenizer_name_or_path=None,
         model_output_dir=None,
         result_output_dir=None,
+        class_weights=None,
         tfidf=False,
         wordlist=False,
         txt=None,
@@ -263,7 +264,18 @@ def main(
     model = TSDModel.from_pretrained(model_name_or_path, num_labels=len(unique_tags))
 
     if do_train:
-        trainer = Trainer(model=model, args=training_args, train_dataset=dataset)
+        if class_weights is not None:
+            loss_fct = torch.nn.CrossEntropyLoss(weight=torch.tensor(class_weights, dtype=torch.float))
+
+            class CrossEntropyLossTrainer(Trainer):
+                def compute_loss(self, model, inputs):
+                    labels = inputs.pop('labels')
+                    logits = model(**inputs)[0]
+                    return loss_fct(logits.view(-1, len(unique_tags)), labels.view(-1))
+
+            trainer = CrossEntropyLossTrainer(model=model, args=training_args, train_dataset=dataset)
+        else:
+            trainer = Trainer(model=model, args=training_args, train_dataset=dataset)
         trainer.train()
 
         if not os.path.exists(model_output_dir):
@@ -338,6 +350,7 @@ if __name__ == '__main__':
     parser.add_argument('--tokenizer_name_or_path', default='distilbert-base-uncased')
     parser.add_argument('--model_output_dir')
     parser.add_argument('--result_output_dir')
+    parser.add_argument('--class_weights', nargs=3, type=int)
     parser.add_argument('--tfidf', action='store_true', default=False)
     parser.add_argument('--wordlist', action='store_true', default=False)
     parser.add_argument('--txt', action='store_true', default=False)
@@ -358,6 +371,7 @@ if __name__ == '__main__':
         tokenizer_name_or_path=args.tokenizer_name_or_path,
         model_output_dir=args.model_output_dir,
         result_output_dir=args.result_output_dir,
+        class_weights=args.class_weights,
         tfidf=args.tfidf,
         wordlist=args.wordlist,
         txt=args.txt,
