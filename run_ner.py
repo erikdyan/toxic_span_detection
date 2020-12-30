@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 from seqeval.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.feature_extraction.text import TfidfVectorizer
+from torchcrf import CRF
 from transformers import DistilBertModel, DistilBertPreTrainedModel, DistilBertTokenizerFast, Trainer, TrainingArguments
 from transformers.modeling_outputs import TokenClassifierOutput
 
@@ -25,6 +26,7 @@ def main(
         class_weights=None,
         tfidf=False,
         wordlist=False,
+        crf=False,
         txt=None,
 ):
     def read_tsd(file_path):
@@ -127,6 +129,9 @@ def main(
             self.dropout = torch.nn.Dropout(config.dropout)
             self.classifier = torch.nn.Linear(config.hidden_size + tfidf + wordlist, config.num_labels)
 
+            if crf:
+                self.crf = CRF(num_tags=config.num_labels, batch_first=True)
+
             self.init_weights()
 
         def forward(
@@ -206,16 +211,32 @@ def main(
 
             loss = None
             if labels is not None:
-                loss_fct = torch.nn.CrossEntropyLoss()
-                if attention_mask is not None:
-                    active_loss = attention_mask.view(-1) == 1
-                    active_logits = logits.view(-1, self.num_labels)
-                    active_labels = torch.where(
-                        active_loss, labels.view(-1), torch.tensor(loss_fct.ignore_index).type_as(labels)
-                    )
-                    loss = loss_fct(active_logits, active_labels)
+                if crf:
+                    prediction_mask = torch.ones(labels.shape, dtype=torch.bool)
+                    for i, seq_labels in enumerate(labels):
+                        for j, label in enumerate(seq_labels):
+                            if label == -100:
+                                prediction_mask[i][j] = 0
+
+                    loss = 0
+                    for seq_logits, seq_labels, seq_mask in zip(logits, labels, prediction_mask):
+                        seq_logits = seq_logits[seq_mask].unsqueeze(0)
+                        seq_labels = seq_labels[seq_mask].unsqueeze(0)
+                        loss -= self.crf(seq_logits, seq_labels, reduction='token_mean')
+
+                    batch_size = logits.shape[0]
+                    loss /= batch_size
                 else:
-                    loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                    loss_fct = torch.nn.CrossEntropyLoss()
+                    if attention_mask is not None:
+                        active_loss = attention_mask.view(-1) == 1
+                        active_logits = logits.view(-1, self.num_labels)
+                        active_labels = torch.where(
+                            active_loss, labels.view(-1), torch.tensor(loss_fct.ignore_index).type_as(labels)
+                        )
+                        loss = loss_fct(active_logits, active_labels)
+                    else:
+                        loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
 
             if not return_dict:
                 output = (logits,) + outputs[1:]
@@ -353,6 +374,7 @@ if __name__ == '__main__':
     parser.add_argument('--class_weights', nargs=3, type=int)
     parser.add_argument('--tfidf', action='store_true', default=False)
     parser.add_argument('--wordlist', action='store_true', default=False)
+    parser.add_argument('--crf', action='store_true', default=False)
     parser.add_argument('--txt', action='store_true', default=False)
 
     args = parser.parse_args()
@@ -374,5 +396,6 @@ if __name__ == '__main__':
         class_weights=args.class_weights,
         tfidf=args.tfidf,
         wordlist=args.wordlist,
+        crf=args.crf,
         txt=args.txt,
     )
