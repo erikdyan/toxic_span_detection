@@ -1,5 +1,4 @@
 import argparse
-import csv
 import os
 import re
 from ast import literal_eval
@@ -27,7 +26,6 @@ def main(
         tfidf=False,
         wordlist=False,
         crf=False,
-        txt=None,
 ):
     def read_tsd(file_path):
         df = pd.read_csv(file_path)
@@ -327,37 +325,26 @@ def main(
             for key, value in metrics.items():
                 writer.write(f'{key} = {value}\n')
 
-        if txt:
-            with open(f'{result_output_dir}test_predictions.txt', 'w') as writer:
-                for i, tokens in enumerate(texts):
-                    for j, token in enumerate(tokens):
-                        writer.write(f'{token}\t{preds_list[i][j]}\n')
-                    writer.write('\n')
+        with open(f'{result_output_dir}spans-pred.txt', 'w') as writer:
+            for i, text in enumerate(pd.read_csv(file_path)['text']):
+                spans = []
+                tokens = re.findall(r"\w+(?:'\w+)*|[^\w]", text)
+                char_offset = list_offset = 0
 
-        else:
-            with open(f'{result_output_dir}test_predictions.csv', 'w') as file:
-                writer = csv.writer(file)
-                writer.writerow(['spans', 'text'])
-
-                for i, text in enumerate(pd.read_csv(file_path)['text']):
-                    spans = []
-                    tokens = re.findall(r"\w+(?:'\w+)*|[^\w]", text)
-                    char_offset = list_offset = 0
-
-                    for j, token in enumerate(tokens):
-                        length = len(token)
-                        if token.isspace() or token > chr(126):
-                            char_offset += length
-                            list_offset += 1
-                            continue
-
-                        pred = preds_list[i][j - list_offset]
-                        if pred == 'B-toxic' or pred == 'I-toxic':
-                            spans.extend(list(range(char_offset, char_offset + length)))
-
+                for j, token in enumerate(tokens):
+                    length = len(token)
+                    if token.isspace() or token > chr(126):
                         char_offset += length
+                        list_offset += 1
+                        continue
 
-                    writer.writerow([spans, text])
+                    pred = preds_list[i][j - list_offset]
+                    if pred == 'B-toxic' or pred == 'I-toxic':
+                        spans.extend(list(range(char_offset, char_offset + length)))
+
+                    char_offset += length
+
+                writer.write(f'{i}\t{spans}\n')
 
 
 if __name__ == '__main__':
@@ -375,7 +362,6 @@ if __name__ == '__main__':
     parser.add_argument('--tfidf', action='store_true', default=False)
     parser.add_argument('--wordlist', action='store_true', default=False)
     parser.add_argument('--crf', action='store_true', default=False)
-    parser.add_argument('--txt', action='store_true', default=False)
 
     args = parser.parse_args()
 
@@ -397,5 +383,4 @@ if __name__ == '__main__':
         tfidf=args.tfidf,
         wordlist=args.wordlist,
         crf=args.crf,
-        txt=args.txt,
     )
