@@ -29,7 +29,10 @@ def main(
 ):
     def read_tsd(file_path):
         df = pd.read_csv(file_path)
-        df['spans'] = df.spans.apply(literal_eval)
+
+        includes_spans = 'spans' in df.columns
+        if includes_spans:
+            df['spans'] = df.spans.apply(literal_eval)
 
         token_docs = []
         tag_docs = []
@@ -38,6 +41,7 @@ def main(
             tokens = []
             tags = []
 
+            spans = row['spans'] if includes_spans else []
             text = re.findall(r"\w+(?:'\w+)*|[^\w]", row['text'])
             offset = 0
 
@@ -51,7 +55,7 @@ def main(
 
                 toxic = False
                 for i in range(len(token)):
-                    if i + offset in row['spans']:
+                    if i + offset in spans:
                         toxic = True
                 if toxic:
                     tags.append('B-toxic') if tags == [] or tags[-1] == 'O' else tags.append('I-toxic')
@@ -63,9 +67,12 @@ def main(
             token_docs.append(tokens)
             tag_docs.append(tags)
 
-        return token_docs, tag_docs
+        return token_docs, tag_docs, includes_spans
 
-    texts, tags = read_tsd(file_path)
+    texts, tags, includes_spans = read_tsd(file_path)
+
+    if not includes_spans and not do_test:
+        raise ValueError('Data must be labelled when training or evaluating.')
 
     unique_tags = ['B-toxic', 'I-toxic', 'O']
     tag2id = {tag: id for id, tag in enumerate(unique_tags)}
@@ -302,7 +309,7 @@ def main(
 
         trainer.save_model(model_output_dir)
 
-    if do_eval:
+    elif do_eval:
         trainer = Trainer(model=model, args=training_args, eval_dataset=dataset, compute_metrics=compute_metrics)
         metrics = trainer.evaluate()
 
@@ -313,7 +320,7 @@ def main(
             for key, value in metrics.items():
                 writer.write(f'{key} = {value}\n')
 
-    if do_test:
+    elif do_test:
         trainer = Trainer(model=model, args=training_args, compute_metrics=compute_metrics)
         preds, label_ids, metrics = trainer.predict(dataset)
         preds_list, _ = align_predictions(preds, label_ids)
@@ -321,9 +328,10 @@ def main(
         if not os.path.exists(result_output_dir):
             os.makedirs(result_output_dir)
 
-        with open(f'{result_output_dir}test_results.txt', 'w') as writer:
-            for key, value in metrics.items():
-                writer.write(f'{key} = {value}\n')
+        if includes_spans:
+            with open(f'{result_output_dir}test_results.txt', 'w') as writer:
+                for key, value in metrics.items():
+                    writer.write(f'{key} = {value}\n')
 
         with open(f'{result_output_dir}spans-pred.txt', 'w') as writer:
             for i, text in enumerate(pd.read_csv(file_path)['text']):
@@ -365,6 +373,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    if not (args.do_train or args.do_eval or args.do_test) or args.do_train + args.do_eval + args.do_test > 1:
+        raise ValueError('Use one of: --do_train, --do_eval, and --do_test')
     if args.do_train and args.model_output_dir is None:
         raise ValueError('--do_train requires --model_output_dir')
     if (args.do_eval or args.do_test) and args.result_output_dir is None:
