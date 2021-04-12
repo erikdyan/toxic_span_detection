@@ -23,7 +23,7 @@ This project investigates several approaches for extracting toxic spans from tex
 * DistilBert + class weighting: Assigns a weight to each class ("B-toxic", "I-toxic", and "Other"). Larger weights result in harsher penalties when incorrectly predicting samples from that class
 * DistilBert + TF-IDF: Appends the TF-IDF weight of each token to its hidden output vector from the base DistilBert model
 * DistilBert + wordlist: Appends a wordlist feature to the hidden output vector of each token from the base DistilBert model. A value of "1" is appended if the token appears in the wordlist (`data/wordlist.txt`), otherwise a value of "0" is appended
-* DistilBert + CRF: Replaces the fully connected layer with a CRF
+* DistilBert + CRF: Adds a CRF on top of the fully connected layer
 
 ## Running the Project
 
@@ -40,4 +40,4 @@ python run_ner.py data/tsd_test.csv --do_test --model_name_or_path models/sample
 * `--class_weights CLASS_WEIGHTS CLASS_WEIGHTS CLASS_WEIGHTS`: weights to assign to each class ("B-toxic", "I-toxic", and "Other", respectively)
 * `--tfidf`: appends the TF-IDF weight of each token to its hidden output vector
 * `--wordlist`: appends a wordlist feature (True/False) to the hidden output vector of each token
-* `--crf`: replaces the fully connected layer with a CRF
+* `--crf`: adds a CRF on top of the fully connected layer
