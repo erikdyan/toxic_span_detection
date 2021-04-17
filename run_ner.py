@@ -128,6 +128,7 @@ def main(
     class TSDModel(DistilBertPreTrainedModel):
         def __init__(self, config):
             super().__init__(config)
+            self.batch_offset = 0
             self.num_labels = config.num_labels
 
             self.distilbert = DistilBertModel(config)
@@ -171,18 +172,16 @@ def main(
                 new_sequence_output = torch.zeros(shape)
 
                 for i, doc in enumerate(sequence_output):
-                    feature_index = X[i, :].nonzero()[1]
-                    tfidf_scores = zip(feature_index, [X[i, x] for x in feature_index])
+                    offset = i + self.batch_offset
+
+                    feature_index = X[offset, :].nonzero()[1]
+                    tfidf_scores = zip(feature_index, [X[offset, x] for x in feature_index])
                     words, scores = map(list, zip(*[(feature_names[k], score) for (k, score) in tfidf_scores]))
 
                     for j, token in enumerate(doc):
-                        if j == 0:
-                            new_sequence_output[i][j] = torch.cat((token, torch.tensor([0])))
-                            continue
-
                         for word, score in zip(words, scores):
                             try:
-                                if word == corpus[i][j - 1]:
+                                if word == corpus[offset][j - 1]:
                                     new_sequence_output[i][j] = torch.cat((token, torch.tensor([score])))
                                     break
                             except IndexError:
@@ -197,13 +196,10 @@ def main(
                 new_sequence_output = torch.zeros(shape)
 
                 for i, doc in enumerate(sequence_output):
+                    offset = i + self.batch_offset
                     for j, token in enumerate(doc):
-                        if j == 0:
-                            new_sequence_output[i][j] = torch.cat((token, torch.tensor([0])))
-                            continue
-
                         try:
-                            if corpus[i][j - 1] in toxic_words:
+                            if corpus[offset][j - 1] in toxic_words:
                                 new_sequence_output[i][j] = torch.cat((token, torch.tensor([1])))
                             else:
                                 new_sequence_output[i][j] = torch.cat((token, torch.tensor([0])))
@@ -213,6 +209,7 @@ def main(
                 sequence_output = new_sequence_output
 
             logits = self.classifier(sequence_output)
+            batch_size = logits.shape[0]
 
             loss = None
             if labels is not None:
@@ -229,7 +226,6 @@ def main(
                         seq_labels = seq_labels[seq_mask].unsqueeze(0)
                         loss -= self.crf(seq_logits, seq_labels, reduction='token_mean')
 
-                    batch_size = logits.shape[0]
                     loss /= batch_size
                 else:
                     loss_fct = torch.nn.CrossEntropyLoss()
@@ -242,6 +238,8 @@ def main(
                         loss = loss_fct(active_logits, active_labels)
                     else:
                         loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                        
+            self.batch_offset += batch_size
 
             if not return_dict:
                 output = (logits,) + outputs[1:]
