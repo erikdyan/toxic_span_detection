@@ -240,6 +240,8 @@ def main(
                         loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
                         
             self.batch_offset += batch_size
+            if self.batch_offset >= len(texts):
+                self.batch_offset = 0
 
             if not return_dict:
                 output = (logits,) + outputs[1:]
